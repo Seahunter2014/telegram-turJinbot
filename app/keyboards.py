@@ -35,7 +35,7 @@ def choice_menu():
 def result_inline(url: str, service: str):
     return {
         "inline_keyboard": [
-            [{"text": "🔗 Открыть", "url": url}],
+            [{"text": "🔥 Лучшие варианты", "url": url}],
             [
                 {"text": "✏️ Изменить запрос", "callback_data": f"retry_{service}"},
                 {"text": "🧙 Старший маг", "callback_data": "contact_admin"},
