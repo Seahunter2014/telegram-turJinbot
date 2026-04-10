@@ -1,41 +1,62 @@
-import re
-from app.services.common import with_marker, slugify_ru
-
-SERVICE_ID = "excursions"
-BUTTON = "🎭 Хлеба и зрелищ"
-OPEN_TEXT = "🎭 Смотреть экскурсии"
-STEPS = ["ex_q1"]
-START_TEXT = """🧞 Слушаюсь и повинуюсь, мой господин.
-В каком городе и на какую дату ищем зрелища?
-Например:
-Стамбул 15 июня
-Рим 1 июля"""
-CLARIFY_TEXT = "Назовите город и дату. Например: Стамбул 15 июня"
-MONTHS = {"января": "01", "февраля": "02", "марта": "03", "апреля": "04", "мая": "05", "июня": "06", "июля": "07", "августа": "08", "сентября": "09", "октября": "10", "ноября": "11", "декабря": "12"}
-SLUGS = {"стамбул":"istanbul","рим":"rome","милан":"milan","дубай":"dubai"}
+from app.utils.telegram import send_message, send_inline
+from app.keyboards import main_menu, result_inline
+from app.storage import set_user_flow, clear_state, save_result
+from app.config import TRAVELPAYOUTS_MARKER, NEXT_ACTION_TEXT
+from app.services.common import (
+    normalize_text,
+    EXCURSIONS_CITY_SLUGS,
+    translit_slug,
+    title_city,
+    find_dates_ru,
+)
 
 
-def parse_input(text: str):
-    m = re.search(r'(\d{1,2})\s+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)', text.lower())
-    date = None
-    if m:
-        date = f"2026-{MONTHS[m.group(2)]}-{int(m.group(1)):02d}"
-    city = re.sub(r'\d{1,2}\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)', '', text, flags=re.I).strip(' ,.-').capitalize()
-    return {"city": city or None, "date": date, "city_slug": SLUGS.get(city.lower() if city else '', slugify_ru(city or ''))}
+def start_excursions(chat_id: int, user_id: int):
+    set_user_flow(user_id, "excursions_input", "excursions")
+
+    send_message(
+        chat_id,
+        "🧞 Слушаюсь и повинуюсь, мой господин.\n"
+        "В каком городе ищем впечатления?\n\n"
+        "Можно сразу указать дату.\n\n"
+        "Например:\n"
+        "Стамбул 15 июня\n"
+        "Рим\n",
+    )
 
 
-def is_valid(data: dict) -> bool:
-    return bool(data.get("city"))
+def handle_excursions(chat_id: int, user_id: int, text: str):
+    t = normalize_text(text)
 
+    if not t:
+        send_message(chat_id, "Назовите город, мой господин.")
+        return
 
-def build_url(data: dict) -> str:
-    slug = data.get('city_slug')
-    url = f"https://tripster.ru/city/{slug}/experiences/"
-    if data.get('date'):
-        url += f"?date={data['date']}"
-    return with_marker(url)
+    dates = find_dates_ru(t)
+    date = dates[0] if dates else None
 
+    city = t.split()[0]
+    city_title = title_city(city)
 
-def summary(data: dict) -> str:
-    tail = f" · {data['date']}" if data.get('date') else ''
-    return f"✨ Ваше желание исполнено, мой господин.\n🎭 {data.get('city')}{tail}\nОткрою зрелища по городу.\nДетали уточните на странице."
+    slug = EXCURSIONS_CITY_SLUGS.get(city) or translit_slug(city)
+
+    if slug:
+        url = f"https://tripster.ru/city/{slug}/experiences/?marker={TRAVELPAYOUTS_MARKER}"
+        if date:
+            url += f"&date={date}"
+    else:
+        url = f"https://tripster.ru/search/?q={city_title}&marker={TRAVELPAYOUTS_MARKER}"
+
+    result_text = (
+        "✨ Ваше желание исполнено, мой господин.\n"
+        f"🎭 {city_title}\n"
+        "Подобрал впечатления.\n"
+        "Дата и детали уточняются на сайте."
+    )
+
+    send_inline(chat_id, result_text, result_inline(url, "excursions"))
+
+    send_message(chat_id, NEXT_ACTION_TEXT, reply_markup=main_menu())
+
+    save_result(user_id, "excursions", text, f"🎭 {city_title}", url)
+    clear_state(user_id)
