@@ -1,48 +1,91 @@
-from app.services.common import with_marker, slugify_ru
-
-SERVICE_ID = "vacation"
-BUTTON = "🌴 Отпуск под ключ"
-OPEN_TEXT = "🌴 Смотреть туры"
-STEPS = ["vc_q1"]
-START_TEXT = """🧞 Слушаюсь и повинуюсь, мой господин.
-Куда и когда?
-Например:
-Турция август
-Египет февраль
-море и солнце, июль
-Направление и месяц — этого достаточно.
-Остальное удобно уточнить уже внутри сервиса."""
-CLARIFY_TEXT = "Уточните направление, мой господин. Например: Турция август"
-COUNTRIES = {"турция":"turkey","египет":"egypt","оаэ":"uae","тайланд":"thailand","таиланд":"thailand","греция":"greece","кипр":"cyprus","италия":"italy","испания":"spain"}
-MONTHS = {"январь":"january","февраль":"february","март":"march","апрель":"april","май":"may","июнь":"june","июль":"july","август":"august","сентябрь":"september","октябрь":"october","ноябрь":"november","декабрь":"december"}
+from app.utils.telegram import send_message, send_inline
+from app.keyboards import choice_menu, main_menu, result_inline
+from app.storage import set_user_flow, clear_state, save_result
+from app.config import TRAVELPAYOUTS_MARKER, NEXT_ACTION_TEXT, ALEAN_IN_PROGRESS_TEXT
+from app.services.common import (
+    normalize_text,
+    VACATION_COUNTRY_SLUGS,
+    VACATION_MONTH_SLUGS,
+)
 
 
-def parse_input(text: str):
-    low = text.lower().strip()
-    month_name = next((m for m in MONTHS if m in low), None)
-    direction = text
-    if month_name:
-        direction = low.replace(month_name, '').strip(' ,.-').capitalize()
+def start_vacation(chat_id: int, user_id: int):
+    set_user_flow(user_id, "vacation_choice", "vacation")
+
+    send_message(
+        chat_id,
+        "Выберите формат поиска, мой господин.",
+        reply_markup=choice_menu(),
+    )
+
+
+def handle_vacation_choice(chat_id: int, user_id: int, text: str):
+    t = normalize_text(text)
+
+    if "быстрый" in t:
+        set_user_flow(user_id, "vacation_input", "vacation")
+
+        send_message(
+            chat_id,
+            "🧞 Слушаюсь и повинуюсь, мой господин.\n"
+            "Куда и когда?\n\n"
+            "Например:\n"
+            "Турция август\n"
+            "Египет февраль",
+        )
+
+    elif "детальный" in t:
+        send_message(chat_id, ALEAN_IN_PROGRESS_TEXT, reply_markup=main_menu())
+        clear_state(user_id)
+
+    elif "отмена" in t:
+        clear_state(user_id)
+        send_message(chat_id, "Слушаюсь, возвращаемся.", reply_markup=main_menu())
+
+
+def handle_vacation(chat_id: int, user_id: int, text: str):
+    t = normalize_text(text)
+
+    country = None
+    month = None
+
+    for key in VACATION_COUNTRY_SLUGS:
+        if key in t:
+            country = key
+            break
+
+    for key in VACATION_MONTH_SLUGS:
+        if key in t:
+            month = key
+            break
+
+    if not country:
+        send_message(
+            chat_id,
+            "Уточните направление, мой господин.\nНапример: Турция август",
+        )
+        return
+
+    country_slug = VACATION_COUNTRY_SLUGS.get(country)
+
+    if month:
+        month_slug = VACATION_MONTH_SLUGS.get(month)
+        url = f"https://www.travelata.ru/{country_slug}/{month_slug}?marker={TRAVELPAYOUTS_MARKER}"
     else:
-        direction = text.strip().capitalize()
-    return {"direction": direction or None, "month_name": month_name}
+        url = f"https://www.travelata.ru/{country_slug}?marker={TRAVELPAYOUTS_MARKER}"
 
+    summary = f"🌴 {country.capitalize()}" + (f" · {month}" if month else "")
 
-def is_valid(data: dict) -> bool:
-    return bool(data.get("direction"))
+    send_inline(
+        chat_id,
+        "✨ Ваше желание исполнено, мой господин.\n"
+        f"{summary}\n"
+        "Подобрал туры по направлению и сезону.\n"
+        "Город вылета и детали — внутри сервиса.",
+        result_inline(url, "vacation"),
+    )
 
+    send_message(chat_id, NEXT_ACTION_TEXT, reply_markup=main_menu())
 
-def build_url(data: dict) -> str:
-    country_slug = COUNTRIES.get((data.get("direction") or '').lower(), slugify_ru(data.get("direction") or ''))
-    month_slug = MONTHS.get((data.get("month_name") or '').lower())
-    url = f"https://www.travelata.ru/{country_slug}"
-    if month_slug:
-        url += f"/{month_slug}"
-    return with_marker(url)
-
-
-def summary(data: dict) -> str:
-    title = data.get("direction") or "Направление"
-    if data.get("month_name"):
-        title += f" · {data['month_name']}"
-    return f"✨ Ваше желание исполнено, мой господин.\n🌴 {title}\nПодобрал туры по направлению и сезону.\nГород вылета, состав путешественников и прочие детали — внутри сервиса."
+    save_result(user_id, "vacation", text, summary, url)
+    clear_state(user_id)
