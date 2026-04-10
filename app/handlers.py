@@ -1,175 +1,250 @@
-from __future__ import annotations
+from app.keyboards import main_menu
+from app.utils.telegram import send_message, answer_callback
+from app.storage import (
+    get_user_flow,
+    clear_state,
+    subscribe_user,
+    unsubscribe_user,
+    is_subscribed,
+)
+from app.config import MAIN_MENU_TEXT, SERVICE_IN_PROGRESS_TEXT
 
-import json
-import threading
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any
-
-
-_user_states: dict[int, dict[str, Any]] = {}
-
-_lock = threading.Lock()
-BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = BASE_DIR / "data"
-SUBSCRIBERS_FILE = DATA_DIR / "subscribers.json"
-
-
-def _ensure_storage() -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    if not SUBSCRIBERS_FILE.exists():
-        SUBSCRIBERS_FILE.write_text("{}", encoding="utf-8")
+# сервисы
+from app.services.flights import start_flights, handle_flights
+from app.services.vacation import start_vacation, handle_vacation_choice, handle_vacation
+from app.services.hotels import start_hotels, handle_hotels_choice, handle_hotels
+from app.services.insurance import start_insurance, handle_insurance
+from app.services.car_rental import start_car, handle_car
+from app.services.transfer import start_transfer
+from app.services.excursions import start_excursions, handle_excursions
 
 
-def _read_subscribers() -> dict[str, dict[str, Any]]:
-    _ensure_storage()
-    try:
-        raw = SUBSCRIBERS_FILE.read_text(encoding="utf-8").strip()
-        if not raw:
-            return {}
-        data = json.loads(raw)
-        if isinstance(data, dict):
-            return data
-        return {}
-    except Exception:
-        return {}
+def _news_inline_keyboard() -> dict:
+    return {
+        "inline_keyboard": [
+            [
+                {"text": "🔔 Подписаться на новости", "callback_data": "subscribe"},
+                {"text": "🔕 Отписаться", "callback_data": "unsubscribe"},
+            ]
+        ]
+    }
 
 
-def _write_subscribers(data: dict[str, dict[str, Any]]) -> None:
-    _ensure_storage()
-    temp_file = SUBSCRIBERS_FILE.with_suffix(".tmp")
-    temp_file.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    temp_file.replace(SUBSCRIBERS_FILE)
-
-
-def get_state(user_id: int) -> dict[str, Any] | None:
-    return _user_states.get(user_id)
-
-
-def set_state(user_id: int, state: dict[str, Any]) -> None:
-    _user_states[user_id] = state
-
-
-def clear_state(user_id: int) -> None:
-    _user_states.pop(user_id, None)
-
-
-def set_user_flow(
-    user_id: int,
-    state_name: str,
-    service: str | None = None,
-    data: dict[str, Any] | None = None,
-) -> None:
-    current = _user_states.get(user_id, {})
-    current["state"] = state_name
-    if service is not None:
-        current["service"] = service
-    if data is not None:
-        current["data"] = data
+def _news_status_text(user_id: int) -> str:
+    if is_subscribed(user_id):
+        status = "включена"
     else:
-        current.setdefault("data", {})
-    _user_states[user_id] = current
+        status = "выключена"
+
+    return (
+        f"🔔 Подписка на рассылку: *{status}*\n\n"
+        "Буду присылать:\n"
+        "• вторник 10:15 — карта цен Aviasales\n"
+        "• четверг 19:15 — горящие туры\n"
+        "• суббота 11:15 — лучшие предложения дня Trip.com"
+    )
 
 
-def get_user_flow(user_id: int) -> tuple[str | None, str | None, dict[str, Any]]:
-    current = _user_states.get(user_id, {})
-    return current.get("state"), current.get("service"), current.get("data", {})
+def start(chat_id: int, user_id: int) -> None:
+    send_message(chat_id, MAIN_MENU_TEXT, reply_markup=main_menu())
+    send_message(
+        chat_id,
+        _news_status_text(user_id),
+        reply_markup=_news_inline_keyboard(),
+    )
 
 
-def save_result(user_id: int, service: str, query: str, summary: str, url: str) -> None:
-    current = _user_states.get(user_id, {})
-    current["last_service"] = service
-    current["last_query"] = query
-    current["last_summary"] = summary
-    current["last_url"] = url
-    current.setdefault("data", {})
-    _user_states[user_id] = current
+def handle_text(chat_id: int, user_id: int, text: str) -> None:
+    state, service, data = get_user_flow(user_id)
+
+    # ====== COMMANDS ======
+    if text == "/start":
+        start(chat_id, user_id)
+        return
+
+    if text == "/news_on":
+        subscribe_user(user_id)
+        send_message(
+            chat_id,
+            "🔔 Подписка включена.\n"
+            "Буду присылать карту цен, горящие туры и лучшие предложения дня.",
+            reply_markup=main_menu(),
+        )
+        return
+
+    if text == "/news_off":
+        unsubscribe_user(user_id)
+        send_message(
+            chat_id,
+            "🔕 Подписка отключена.",
+            reply_markup=main_menu(),
+        )
+        return
+
+    if text == "/news_status":
+        send_message(
+            chat_id,
+            _news_status_text(user_id),
+            reply_markup=_news_inline_keyboard(),
+        )
+        return
+
+    # ====== CANCEL ======
+    if text == "❌ Отмена":
+        clear_state(user_id)
+        send_message(chat_id, "🧞 Слушаюсь, мой господин.", reply_markup=main_menu())
+        return
+
+    # ====== STATES ======
+    if state == "flights_input":
+        handle_flights(chat_id, user_id, text)
+        return
+
+    if state == "vacation_choice":
+        handle_vacation_choice(chat_id, user_id, text)
+        return
+
+    if state == "vacation_input":
+        handle_vacation(chat_id, user_id, text)
+        return
+
+    if state == "hotels_choice":
+        handle_hotels_choice(chat_id, user_id, text)
+        return
+
+    if state == "hotels_input":
+        handle_hotels(chat_id, user_id, text)
+        return
+
+    if state == "insurance_input":
+        handle_insurance(chat_id, user_id, text)
+        return
+
+    if state == "car_input":
+        handle_car(chat_id, user_id, text)
+        return
+
+    if state == "excursions_input":
+        handle_excursions(chat_id, user_id, text)
+        return
+
+    # ====== ENTRY BUTTONS ======
+    if text == "🧞 Ковер самолет":
+        start_flights(chat_id, user_id)
+        return
+
+    if text == "🌴 Отпуск под ключ":
+        start_vacation(chat_id, user_id)
+        return
+
+    if text == "🏰 Снять дворец":
+        start_hotels(chat_id, user_id)
+        return
+
+    if text == "🛡 Оберег туриста":
+        start_insurance(chat_id, user_id)
+        return
+
+    if text == "🚗 Аренда авто":
+        start_car(chat_id, user_id)
+        return
+
+    if text == "🚖 Эх, прокачу":
+        start_transfer(chat_id, user_id)
+        return
+
+    if text == "🎭 Хлеба и зрелищ":
+        start_excursions(chat_id, user_id)
+        return
+
+    # ====== FIX: если state слетел, но service сохранился ======
+    if service == "flights":
+        handle_flights(chat_id, user_id, text)
+        return
+
+    if service == "vacation":
+        handle_vacation(chat_id, user_id, text)
+        return
+
+    if service == "hotels":
+        handle_hotels(chat_id, user_id, text)
+        return
+
+    if service == "insurance":
+        handle_insurance(chat_id, user_id, text)
+        return
+
+    if service == "car":
+        handle_car(chat_id, user_id, text)
+        return
+
+    if service == "excursions":
+        handle_excursions(chat_id, user_id, text)
+        return
+
+    # ====== FALLBACK ======
+    send_message(chat_id, SERVICE_IN_PROGRESS_TEXT, reply_markup=main_menu())
 
 
-def get_last_service(user_id: int) -> str | None:
-    current = _user_states.get(user_id, {})
-    return current.get("last_service")
+def handle_callback(chat_id: int, user_id: int, data: str, callback_id: str) -> None:
+    answer_callback(callback_id)
 
+    if data.startswith("retry_"):
+        service = data.split("_", 1)[1]
 
-def get_last_query(user_id: int) -> str | None:
-    current = _user_states.get(user_id, {})
-    return current.get("last_query")
+        if service == "flights":
+            start_flights(chat_id, user_id)
+            return
+        if service == "vacation":
+            start_vacation(chat_id, user_id)
+            return
+        if service == "hotels":
+            start_hotels(chat_id, user_id)
+            return
+        if service == "insurance":
+            start_insurance(chat_id, user_id)
+            return
+        if service == "car":
+            start_car(chat_id, user_id)
+            return
+        if service == "transfer":
+            start_transfer(chat_id, user_id)
+            return
+        if service == "excursions":
+            start_excursions(chat_id, user_id)
+            return
 
+    if data == "subscribe":
+        subscribe_user(user_id)
+        send_message(
+            chat_id,
+            "🔔 Готово.\n"
+            "Подписка включена на все 3 рассылки:\n"
+            "• карта цен Aviasales\n"
+            "• горящие туры\n"
+            "• лучшие предложения дня Trip.com",
+            reply_markup=main_menu(),
+        )
+        return
 
-def get_last_summary(user_id: int) -> str | None:
-    current = _user_states.get(user_id, {})
-    return current.get("last_summary")
+    if data == "unsubscribe":
+        unsubscribe_user(user_id)
+        send_message(
+            chat_id,
+            "🔕 Подписка отключена.",
+            reply_markup=main_menu(),
+        )
+        return
 
-
-def get_last_url(user_id: int) -> str | None:
-    current = _user_states.get(user_id, {})
-    return current.get("last_url")
-
-
-def subscribe_user(user_id: int) -> None:
-    with _lock:
-        data = _read_subscribers()
-        key = str(user_id)
-        item = data.get(key, {})
-        item["telegram_user_id"] = user_id
-        item["is_subscribed"] = True
-        item["is_blocked"] = False
-        item["subscribed_at"] = item.get("subscribed_at") or datetime.now(timezone.utc).isoformat()
-        item["updated_at"] = datetime.now(timezone.utc).isoformat()
-        data[key] = item
-        _write_subscribers(data)
-
-
-def unsubscribe_user(user_id: int) -> None:
-    with _lock:
-        data = _read_subscribers()
-        key = str(user_id)
-        item = data.get(key, {})
-        item["telegram_user_id"] = user_id
-        item["is_subscribed"] = False
-        item["unsubscribed_at"] = datetime.now(timezone.utc).isoformat()
-        item["updated_at"] = datetime.now(timezone.utc).isoformat()
-        data[key] = item
-        _write_subscribers(data)
-
-
-def is_subscribed(user_id: int) -> bool:
-    with _lock:
-        data = _read_subscribers()
-        item = data.get(str(user_id), {})
-        return bool(item.get("is_subscribed", False)) and not bool(item.get("is_blocked", False))
-
-
-def get_subscribed_user_ids() -> list[int]:
-    with _lock:
-        data = _read_subscribers()
-        result: list[int] = []
-        for key, item in data.items():
-            if item.get("is_subscribed") and not item.get("is_blocked"):
-                try:
-                    result.append(int(key))
-                except ValueError:
-                    continue
-        return result
-
-
-def mark_user_blocked(user_id: int) -> None:
-    with _lock:
-        data = _read_subscribers()
-        key = str(user_id)
-        item = data.get(key, {})
-        item["telegram_user_id"] = user_id
-        item["is_blocked"] = True
-        item["is_subscribed"] = False
-        item["blocked_at"] = datetime.now(timezone.utc).isoformat()
-        item["updated_at"] = datetime.now(timezone.utc).isoformat()
-        data[key] = item
-        _write_subscribers(data)
-
-
-# Совместимость с уже существующим callback_data="subscribe"
-def subscribe(user_id: int) -> None:
-    subscribe_user(user_id)
+    if data == "contact_admin":
+        send_message(
+            chat_id,
+            "🧙 Передам старшему магу.\n"
+            "Укажите:\n"
+            "— Имя\n"
+            "— Контакт\n"
+            "— Даты\n"
+            "— Пожелания",
+            reply_markup=main_menu(),
+        )
+        return
