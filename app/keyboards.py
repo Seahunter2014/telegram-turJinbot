@@ -1,18 +1,45 @@
-def reply_keyboard(rows):
-    return {"keyboard": [[{"text": t} for t in row] for row in rows], "resize_keyboard": True}
+from urllib.parse import quote
 
 
-def inline_keyboard(rows):
-    return {"inline_keyboard": rows}
+def main_menu():
+    return {
+        "keyboard": [
+            [{"text": "🧞 Ковер самолет"}, {"text": "🌴 Отпуск под ключ"}],
+            [{"text": "🏰 Снять дворец"}, {"text": "🛡 Оберег туриста"}],
+            [{"text": "🚗 Аренда авто"}, {"text": "🚖 Эх, прокачу"}],
+            [{"text": "🎭 Хлеба и зрелищ"}],
+        ],
+        "resize_keyboard": True
+    }
 
 
-MAIN_KEYBOARD = reply_keyboard([
-    ["🧞 Ковер самолет", "🌴 Отпуск под ключ"],
-    ["🏰 Снять дворец", "🛡 Оберег туриста"],
-    ["🚗 Аренда авто", "🚖 Эх, прокачу"],
-    ["🎭 Хлеба и зрелищ"],
-])
+def cancel_keyboard():
+    return {
+        "keyboard": [
+            [{"text": "❌ Отмена"}]
+        ],
+        "resize_keyboard": True
+    }
 
-CANCEL_KEYBOARD = reply_keyboard([["❌ Отмена"]])
 
-MODE_KEYBOARD = reply_keyboard([["⚡ Быстрый поиск", "🧭 Детальный подбор"], ["❌ Отмена"]])
+def choice_menu():
+    return {
+        "keyboard": [
+            [{"text": "⚡ Быстрый поиск"}, {"text": "🧭 Детальный подбор"}],
+            [{"text": "❌ Отмена"}]
+        ],
+        "resize_keyboard": True
+    }
+
+
+def result_inline(url: str, service: str):
+    return {
+        "inline_keyboard": [
+            [{"text": "🔗 Открыть", "url": url}],
+            [
+                {"text": "✏️ Изменить запрос", "callback_data": f"retry_{service}"},
+                {"text": "🧙 Старший маг", "callback_data": "contact_admin"},
+            ],
+            [{"text": "🔔 Подписаться", "callback_data": "subscribe"}]
+        ]
+    }
