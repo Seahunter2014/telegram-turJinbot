@@ -2,7 +2,7 @@ import requests
 from fastapi import FastAPI, Request
 
 from app.config import BOT_TOKEN, webhook_url
-from app.handlers import handle_text, handle_callback
+import app.handlers as handlers
 
 app = FastAPI()
 
@@ -22,7 +22,7 @@ async def health():
 @app.get("/set-webhook")
 async def set_webhook():
     url = webhook_url()
-    resp = requests.get(f"{API_BASE}/setWebhook", params={"url": url})
+    resp = requests.get(f"{API_BASE}/setWebhook", params={"url": url}, timeout=30)
     return resp.json()
 
 
@@ -30,16 +30,19 @@ async def set_webhook():
 async def webhook(req: Request):
     update = await req.json()
 
-    # MESSAGE
     if "message" in update:
         msg = update["message"]
         chat_id = msg["chat"]["id"]
         user_id = msg["from"]["id"]
         text = (msg.get("text") or "").strip()
 
-        handle_text(chat_id, user_id, text)
+        if hasattr(handlers, "handle_text"):
+            handlers.handle_text(chat_id, user_id, text)
+        elif hasattr(handlers, "handle_message"):
+            handlers.handle_message(chat_id, user_id, text)
+        elif hasattr(handlers, "process_text"):
+            handlers.process_text(chat_id, user_id, text)
 
-    # CALLBACK
     if "callback_query" in update:
         cb = update["callback_query"]
         chat_id = cb["message"]["chat"]["id"]
@@ -47,6 +50,9 @@ async def webhook(req: Request):
         data = cb["data"]
         callback_id = cb["id"]
 
-        handle_callback(chat_id, user_id, data, callback_id)
+        if hasattr(handlers, "handle_callback"):
+            handlers.handle_callback(chat_id, user_id, data, callback_id)
+        elif hasattr(handlers, "process_callback"):
+            handlers.process_callback(chat_id, user_id, data, callback_id)
 
     return {"ok": True}
