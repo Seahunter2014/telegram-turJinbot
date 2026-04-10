@@ -32,7 +32,7 @@ def handle_car(chat_id: int, user_id: int, text: str):
 
     slug = CAR_CITY_SLUGS.get(city) or translit_slug(city)
 
-    url = f"https://localrent.com/cars/{slug}?marker={TRAVELPAYOUTS_MARKER}"
+    url = f"https://localrent.com/?marker={TRAVELPAYOUTS_MARKER}#cars/{slug}"
 
     result_text = (
         "✨ Ваше желание исполнено, мой господин.\n"
