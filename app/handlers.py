@@ -93,6 +93,31 @@ def handle_text(chat_id: int, user_id: int, text: str):
         start_excursions(chat_id, user_id)
         return
 
+    # ====== FIX: если state слетел, но сервис был flights ======
+    if service == "flights":
+        handle_flights(chat_id, user_id, text)
+        return
+
+    if service == "vacation":
+        handle_vacation(chat_id, user_id, text)
+        return
+
+    if service == "hotels":
+        handle_hotels(chat_id, user_id, text)
+        return
+
+    if service == "insurance":
+        handle_insurance(chat_id, user_id, text)
+        return
+
+    if service == "car":
+        handle_car(chat_id, user_id, text)
+        return
+
+    if service == "excursions":
+        handle_excursions(chat_id, user_id, text)
+        return
+
     # ====== FALLBACK ======
     send_message(chat_id, SERVICE_IN_PROGRESS_TEXT, reply_markup=main_menu())
 
@@ -120,7 +145,20 @@ def handle_callback(chat_id: int, user_id: int, data: str, callback_id: str):
 
     elif data == "subscribe":
         subscribe(user_id)
-        send_message(chat_id, "✨ Готово. Я буду присылать вам новые варианты.", reply_markup=main_menu())
+        send_message(
+            chat_id,
+            "✨ Готово. Я буду присылать вам новые достойные варианты.",
+            reply_markup=main_menu(),
+        )
 
     elif data == "contact_admin":
-        send_message(chat_id, "🧙 Передам старшему магу. Он свяжется с вами.", reply_markup=main_menu())
+        send_message(
+            chat_id,
+            "🧙 Передам старшему магу.\n"
+            "Укажите:\n"
+            "— Имя\n"
+            "— Контакт\n"
+            "— Даты\n"
+            "— Пожелания",
+            reply_markup=main_menu(),
+        )
