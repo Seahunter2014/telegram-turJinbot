@@ -1,32 +1,49 @@
-from app.services.common import with_marker, slugify_ru
-
-SERVICE_ID = "car"
-BUTTON = "🚗 Аренда авто"
-OPEN_TEXT = "🚗 Смотреть авто"
-STEPS = ["car_q1"]
-START_TEXT = """🧞 Слушаюсь и повинуюсь, мой господин.
-В каком городе нужна машина?
-Например:
-Анталья
-Тбилиси
-Дубай
-Даты и детали вы выберете внутри сервиса."""
-CLARIFY_TEXT = "Назовите город аренды."
-CITY_SLUGS = {"анталья":"antalya","тбилиси":"tbilisi","дубай":"dubai","стамбул":"istanbul"}
+from app.utils.telegram import send_message, send_inline
+from app.keyboards import main_menu, result_inline
+from app.storage import set_user_flow, clear_state, save_result
+from app.config import TRAVELPAYOUTS_MARKER, NEXT_ACTION_TEXT
+from app.services.common import normalize_text, translit_slug, title_city, CAR_CITY_SLUGS
 
 
-def parse_input(text: str):
-    city = text.strip().capitalize() or None
-    return {"city": city, "city_slug": CITY_SLUGS.get((city or '').lower(), slugify_ru(city or ''))}
+def start_car(chat_id: int, user_id: int):
+    set_user_flow(user_id, "car_input", "car")
+
+    send_message(
+        chat_id,
+        "🧞 Слушаюсь и повинуюсь, мой господин.\n"
+        "В каком городе нужна машина?\n\n"
+        "Например:\n"
+        "Анталья\n"
+        "Тбилиси\n"
+        "Дубай\n\n"
+        "Даты выберете на сайте.",
+    )
 
 
-def is_valid(data: dict) -> bool:
-    return bool(data.get("city"))
+def handle_car(chat_id: int, user_id: int, text: str):
+    t = normalize_text(text)
 
+    if not t:
+        send_message(chat_id, "Назовите город аренды.")
+        return
 
-def build_url(data: dict) -> str:
-    return with_marker(f"https://localrent.com/cars/{data.get('city_slug')}")
+    city = t.split()[0]
+    city_title = title_city(city)
 
+    slug = CAR_CITY_SLUGS.get(city) or translit_slug(city)
 
-def summary(data: dict) -> str:
-    return f"✨ Ваше желание исполнено, мой господин.\n🚗 {data.get('city')}\nГород учтён в ссылке.\nДаты и тип автомобиля выберите на месте."
+    url = f"https://localrent.com/cars/{slug}?marker={TRAVELPAYOUTS_MARKER}"
+
+    result_text = (
+        "✨ Ваше желание исполнено, мой господин.\n"
+        f"🚗 {city_title}\n"
+        "Город учтён в ссылке.\n"
+        "Даты и авто выберите на месте."
+    )
+
+    send_inline(chat_id, result_text, result_inline(url, "car"))
+
+    send_message(chat_id, NEXT_ACTION_TEXT, reply_markup=main_menu())
+
+    save_result(user_id, "car", text, f"🚗 {city_title}", url)
+    clear_state(user_id)
