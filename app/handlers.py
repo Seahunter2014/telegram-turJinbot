@@ -1,6 +1,6 @@
 from app.keyboards import main_menu
 from app.utils.telegram import send_message, answer_callback
-from app.storage import get_user_flow, clear_state, get_last_service, subscribe
+from app.storage import get_user_flow, clear_state, subscribe
 from app.config import MAIN_MENU_TEXT, SERVICE_IN_PROGRESS_TEXT
 
 from app.services.flights import start_flights, handle_flights
@@ -17,12 +17,47 @@ def start(chat_id: int):
 
 
 def handle_text(chat_id: int, user_id: int, text: str):
-    state, service, data = get_user_flow(user_id)
+    # Сначала команды и кнопки главного меню.
+    # Это важно: кнопка "🧞 Ковер самолет" должна запускать start_flights(),
+    # а не попадать в старый service fallback.
+    if text == "/start":
+        start(chat_id)
+        return
+
+    if text == "🧞 Ковер самолет":
+        start_flights(chat_id, user_id)
+        return
+
+    if text == "🌴 Отпуск под ключ":
+        start_vacation(chat_id, user_id)
+        return
+
+    if text == "🏰 Снять дворец":
+        start_hotels(chat_id, user_id)
+        return
+
+    if text == "🛡 Оберег туриста":
+        start_insurance(chat_id, user_id)
+        return
+
+    if text == "🚗 Аренда авто":
+        start_car(chat_id, user_id)
+        return
+
+    if text == "🚖 Эх, прокачу":
+        start_transfer(chat_id, user_id)
+        return
+
+    if text == "🎭 Хлеба и зрелищ":
+        start_excursions(chat_id, user_id)
+        return
 
     if text == "❌ Отмена":
         clear_state(user_id)
         send_message(chat_id, "🧞 Слушаюсь, мой господин.", reply_markup=main_menu())
         return
+
+    state, service, data = get_user_flow(user_id)
 
     if state == "flights_input":
         handle_flights(chat_id, user_id, text)
@@ -56,38 +91,8 @@ def handle_text(chat_id: int, user_id: int, text: str):
         handle_excursions(chat_id, user_id, text)
         return
 
-    if text == "/start":
-        start(chat_id)
-        return
-
-    if text == "🧞 Ковер самолет":
-        start_flights(chat_id, user_id)
-        return
-
-    if text == "🌴 Отпуск под ключ":
-        start_vacation(chat_id, user_id)
-        return
-
-    if text == "🏰 Снять дворец":
-        start_hotels(chat_id, user_id)
-        return
-
-    if text == "🛡 Оберег туриста":
-        start_insurance(chat_id, user_id)
-        return
-
-    if text == "🚗 Аренда авто":
-        start_car(chat_id, user_id)
-        return
-
-    if text == "🚖 Эх, прокачу":
-        start_transfer(chat_id, user_id)
-        return
-
-    if text == "🎭 Хлеба и зрелищ":
-        start_excursions(chat_id, user_id)
-        return
-
+    # Fallback только если пользователь уже внутри сценария,
+    # но state по какой-то причине слетел.
     if service == "flights":
         handle_flights(chat_id, user_id, text)
         return
