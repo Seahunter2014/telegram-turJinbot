@@ -1,13 +1,14 @@
+from urllib.parse import quote_plus
+
 from app.utils.telegram import send_message, send_inline
 from app.keyboards import main_menu, result_inline
 from app.storage import set_user_flow, clear_state, save_result
-from app.config import TRAVELPAYOUTS_MARKER, NEXT_ACTION_TEXT
+from app.config import TRAVELPAYOUTS_MARKER, NEXT_ACTION_TEXT, WEBHOOK_BASE_URL
 from app.services.common import normalize_text, translit_slug, title_city, CAR_CITY_SLUGS
 
 
 def start_car(chat_id: int, user_id: int):
     set_user_flow(user_id, "car_input", "car")
-
     send_message(
         chat_id,
         "🧞 Слушаюсь и повинуюсь, мой господин.\n"
@@ -20,6 +21,16 @@ def start_car(chat_id: int, user_id: int):
     )
 
 
+def _build_target(slug: str) -> str:
+    return f"https://localrent.com/?marker={TRAVELPAYOUTS_MARKER}#cars/{slug}"
+
+
+def _build_masked_url(city: str, target_url: str) -> str:
+    item_id = translit_slug(city) or city.lower()
+    target = quote_plus(target_url)
+    return f"{WEBHOOK_BASE_URL}/go/car/{item_id}?target={target}"
+
+
 def handle_car(chat_id: int, user_id: int, text: str):
     t = normalize_text(text)
 
@@ -29,10 +40,10 @@ def handle_car(chat_id: int, user_id: int, text: str):
 
     city = t.split()[0]
     city_title = title_city(city)
-
     slug = CAR_CITY_SLUGS.get(city) or translit_slug(city)
 
-    url = f"https://localrent.com/?marker={TRAVELPAYOUTS_MARKER}#cars/{slug}"
+    target_url = _build_target(slug)
+    url = _build_masked_url(city, target_url)
 
     result_text = (
         "✨ Ваше желание исполнено, мой господин.\n"
@@ -42,7 +53,6 @@ def handle_car(chat_id: int, user_id: int, text: str):
     )
 
     send_inline(chat_id, result_text, result_inline(url, "car"))
-
     send_message(chat_id, NEXT_ACTION_TEXT, reply_markup=main_menu())
 
     save_result(user_id, "car", text, f"🚗 {city_title}", url)
