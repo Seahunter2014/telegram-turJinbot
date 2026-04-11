@@ -1,4 +1,4 @@
-from urllib.parse import quote_plus, urlencode
+from urllib.parse import quote_plus
 
 import requests
 
@@ -14,6 +14,7 @@ from app.config import (
 from app.services.common import (
     normalize_text,
     find_dates_ru,
+    iso_to_ddmm,
     CITY_TO_IATA,
     title_city,
     parse_passengers,
@@ -105,28 +106,27 @@ def _build_aviasales_target(
     children: int,
     infants: int,
 ) -> str:
+    """
+    Возвращаем старый рабочий deeplink-формат Aviasales,
+    который у тебя уже открывал поиск корректно.
+    Меняем только то, что нужно для masked link через /go/flight/...
+    """
     adults, children, infants = _normalize_passengers(adults, children, infants)
 
-    params = {
-        "origin_iata": origin,
-        "destination_iata": destination,
-        "depart_date": depart_date,
-        "adults": adults,
-        "children": children,
-        "infants": infants,
-        "trip_class": 0,
-        "locale": "ru",
-        "marker": TRAVELPAYOUTS_MARKER,
-    }
+    ddmm_depart = iso_to_ddmm(depart_date)
+    ddmm_return = iso_to_ddmm(return_date) if return_date else ""
 
-    if return_date:
-        params["return_date"] = return_date
-        params["one_way"] = "false"
-    else:
-        params["one_way"] = "true"
+    path = f"{origin}{ddmm_depart}{destination}"
+    if ddmm_return:
+        path += ddmm_return
 
-    query = urlencode(params)
-    return f"https://search.aviasales.com/flights/?{query}"
+    return (
+        f"https://www.aviasales.ru/search/{path}"
+        f"?adults={adults}"
+        f"&children={children}"
+        f"&infants={infants}"
+        f"&marker={TRAVELPAYOUTS_MARKER}"
+    )
 
 
 def _build_masked_url(from_city: str, to_city: str, target_url: str) -> str:
