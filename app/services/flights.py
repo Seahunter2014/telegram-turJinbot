@@ -105,6 +105,13 @@ def _build_aviasales_target(
     children: int,
     infants: int,
 ) -> str:
+    """
+    ВАЖНО:
+    Нужен именно URL страницы результатов поиска, а не формы.
+    По документации Travelpayouts:
+    - results page: aviasales.com/searches/new
+    - preset form:  search.aviasales.com/flights/
+    """
     adults, children, infants = _normalize_passengers(adults, children, infants)
 
     params = {
@@ -120,12 +127,9 @@ def _build_aviasales_target(
 
     if return_date:
         params["return_date"] = return_date
-        params["oneway"] = 0
-    else:
-        params["oneway"] = 1
 
     query = urlencode(params)
-    return f"https://search.aviasales.com/flights/?{query}"
+    return f"https://www.aviasales.com/searches/new?{query}"
 
 
 def _build_masked_url(from_city: str, to_city: str, target_url: str) -> str:
