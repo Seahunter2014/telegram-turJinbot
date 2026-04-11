@@ -1,9 +1,16 @@
+from urllib.parse import quote_plus
+
 import requests
 
 from app.utils.telegram import send_message, send_inline, send_typing
 from app.keyboards import main_menu, result_inline
 from app.storage import set_user_flow, clear_state, save_result
-from app.config import TRAVELPAYOUTS_MARKER, TRAVELPAYOUTS_API_TOKEN, NEXT_ACTION_TEXT
+from app.config import (
+    TRAVELPAYOUTS_MARKER,
+    TRAVELPAYOUTS_API_TOKEN,
+    NEXT_ACTION_TEXT,
+    WEBHOOK_BASE_URL,
+)
 from app.services.common import (
     normalize_text,
     find_dates_ru,
@@ -57,7 +64,7 @@ def get_price(origin: str, destination: str):
 
 
 def _is_one_way(text: str) -> bool:
-    one_way_markers = [
+    markers = [
         "в одну сторону",
         "в один конец",
         "one way",
@@ -65,7 +72,7 @@ def _is_one_way(text: str) -> bool:
         "без обратного",
         "только туда",
     ]
-    return any(marker in text for marker in one_way_markers)
+    return any(marker in text for marker in markers)
 
 
 def _extract_cities(text: str):
@@ -73,6 +80,39 @@ def _extract_cities(text: str):
     if len(cities) < 2:
         return None, None
     return cities[0], cities[1]
+
+
+def _build_aviasales_target(
+    origin: str,
+    destination: str,
+    depart: str,
+    return_date: str | None,
+    adults: int,
+    children: int,
+    infants: int,
+) -> str:
+    ddmm_depart = iso_to_ddmm(depart)
+    ddmm_return = iso_to_ddmm(return_date) if return_date else ""
+
+    path = f"{origin}{ddmm_depart}{destination}"
+    if ddmm_return:
+        path += ddmm_return
+
+    return (
+        f"https://www.aviasales.ru/search/{path}"
+        f"?adults={adults}&children={children}&infants={infants}"
+        f"&marker={TRAVELPAYOUTS_MARKER}"
+    )
+
+
+def _build_masked_url(
+    from_city: str,
+    to_city: str,
+    target_url: str,
+) -> str:
+    item_id = f"{from_city}-{to_city}".replace(" ", "-").lower()
+    target = quote_plus(target_url)
+    return f"{WEBHOOK_BASE_URL}/go/flight/{item_id}?target={target}"
 
 
 def handle_flights(chat_id: int, user_id: int, text: str):
@@ -94,39 +134,32 @@ def handle_flights(chat_id: int, user_id: int, text: str):
     destination = CITY_TO_IATA[to_city]
 
     depart = dates[0]
-    one_way = _is_one_way(t)
-
-    if one_way:
-        return_date = None
-    else:
-        return_date = dates[1] if len(dates) > 1 else None
-
-    ddmm_depart = iso_to_ddmm(depart)
-    ddmm_return = iso_to_ddmm(return_date) if return_date else ""
+    return_date = None if _is_one_way(t) else (dates[1] if len(dates) > 1 else None)
 
     adults, children, infants = parse_passengers(t)
 
-    path = f"{origin}{ddmm_depart}{destination}"
-    if ddmm_return:
-        path += ddmm_return
-
-    url = (
-        f"https://www.aviasales.ru/search/{path}"
-        f"?adults={adults}&children={children}&infants={infants}"
-        f"&marker={TRAVELPAYOUTS_MARKER}"
+    target_url = _build_aviasales_target(
+        origin=origin,
+        destination=destination,
+        depart=depart,
+        return_date=return_date,
+        adults=adults,
+        children=children,
+        infants=infants,
     )
+    url = _build_masked_url(from_city, to_city, target_url)
 
     price = get_price(origin, destination)
     price_text = f"от {price} ₽" if price else "Цены уточняются при переходе"
 
     if return_date:
-        route_line = (
+        details = (
             f"✈️ {title_city(from_city)} → {title_city(to_city)}\n"
             f"📅 {depart} — {return_date}\n"
             f"👤 взрослых: {adults}"
         )
     else:
-        route_line = (
+        details = (
             f"✈️ {title_city(from_city)} → {title_city(to_city)}\n"
             f"📅 {depart}\n"
             f"🛫 в одну сторону\n"
@@ -134,24 +167,20 @@ def handle_flights(chat_id: int, user_id: int, text: str):
         )
 
     if children:
-        route_line += f"\n🧒 детей: {children}"
+        details += f"\n🧒 детей: {children}"
     if infants:
-        route_line += f"\n👶 младенцев: {infants}"
+        details += f"\n👶 младенцев: {infants}"
+
+    summary = f"✈️ {title_city(from_city)} → {title_city(to_city)}"
 
     send_inline(
         chat_id,
         "✨ Ваше желание исполнено, мой господин.\n"
-        f"{route_line}\n\n"
+        f"{details}\n\n"
         f"{price_text}",
         result_inline(url, "flights"),
     )
-
     send_message(chat_id, NEXT_ACTION_TEXT, reply_markup=main_menu())
-    save_result(
-        user_id,
-        "flights",
-        text,
-        f"✈️ {title_city(from_city)} → {title_city(to_city)}",
-        url,
-    )
+
+    save_result(user_id, "flights", text, summary, url)
     clear_state(user_id)
