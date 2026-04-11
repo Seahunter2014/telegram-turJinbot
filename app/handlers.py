@@ -17,9 +17,7 @@ def start(chat_id: int):
 
 
 def handle_text(chat_id: int, user_id: int, text: str):
-    # Сначала команды и кнопки главного меню.
-    # Это важно: кнопка "🧞 Ковер самолет" должна запускать start_flights(),
-    # а не попадать в старый service fallback.
+    # Сначала команды и кнопки главного меню
     if text == "/start":
         start(chat_id)
         return
@@ -91,8 +89,7 @@ def handle_text(chat_id: int, user_id: int, text: str):
         handle_excursions(chat_id, user_id, text)
         return
 
-    # Fallback только если пользователь уже внутри сценария,
-    # но state по какой-то причине слетел.
+    # Fallback только если пользователь уже был внутри сценария
     if service == "flights":
         handle_flights(chat_id, user_id, text)
         return
@@ -117,7 +114,7 @@ def handle_text(chat_id: int, user_id: int, text: str):
         handle_excursions(chat_id, user_id, text)
         return
 
-    send_message(chat_id, SERVICE_IN_PROGRESS_TEXT, reply_markup=main_menu())
+    send_message(chat_id, MAIN_MENU_TEXT, reply_markup=main_menu())
 
 
 def handle_callback(chat_id: int, user_id: int, data: str, callback_id: str):
