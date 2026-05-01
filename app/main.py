@@ -1,11 +1,10 @@
-from urllib.parse import unquote
-
 import requests
 from fastapi import FastAPI, Request, HTTPException, Query
-from fastapi.responses import Response
+from fastapi.responses import RedirectResponse, JSONResponse
 
-from app.config import BOT_TOKEN, webhook_url
+from app.config import BOT_TOKEN, webhook_url, BROADCAST_SECRET
 import app.handlers as handlers
+from app.services.broadcasts import run_broadcast
 
 app = FastAPI()
 
@@ -36,22 +35,35 @@ async def set_webhook():
     return resp.json()
 
 
+@app.get("/broadcast/run")
+async def broadcast_run(
+    secret: str = Query(...),
+    kind: str = Query(..., description="flight_map | hot_tours | trip_best"),
+):
+    if not BROADCAST_SECRET or secret != BROADCAST_SECRET:
+        raise HTTPException(status_code=403, detail="forbidden")
+
+    if kind not in {"flight_map", "hot_tours", "trip_best"}:
+        raise HTTPException(status_code=400, detail="unknown broadcast kind")
+
+    result = run_broadcast(kind)
+    return JSONResponse(content=result)
+
+
 def _redirect_to_target(target: str | None, service: str, item_id: str):
+    """
+    Универсальный редирект на целевой URL.
+    Пока минимально и безопасно:
+    - если target не передан -> 400
+    - если target передан -> redirect 302
+    """
     if not target:
         raise HTTPException(
             status_code=400,
             detail=f"missing target for service={service}, id={item_id}",
         )
 
-    decoded_target = unquote(target)
-
-    if not decoded_target.startswith(("http://", "https://")):
-        raise HTTPException(status_code=400, detail="invalid target url")
-
-    return Response(
-        status_code=302,
-        headers={"Location": decoded_target},
-    )
+    return RedirectResponse(url=target, status_code=302)
 
 
 @app.get("/go/flight/{item_id}")
