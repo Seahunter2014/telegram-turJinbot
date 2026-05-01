@@ -106,11 +106,6 @@ def _build_aviasales_target(
     children: int,
     infants: int,
 ) -> str:
-    """
-    ВАЖНО:
-    Используем старый рабочий формат Aviasales /search/,
-    добавляя "1" в конец для one-way
-    """
     adults, children, infants = _normalize_passengers(adults, children, infants)
 
     ddmm_depart = iso_to_ddmm(depart_date)
@@ -121,7 +116,7 @@ def _build_aviasales_target(
     if ddmm_return:
         path += ddmm_return
     else:
-        path += "1"  # ← ЭТО ЕДИНСТВЕННАЯ ПРАВКА
+        path += "1"
 
     return (
         f"https://www.aviasales.ru/search/{path}"
