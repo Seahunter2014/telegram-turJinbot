@@ -107,9 +107,9 @@ def _build_aviasales_target(
     infants: int,
 ) -> str:
     """
-    Возвращаем старый рабочий deeplink-формат Aviasales,
-    который у тебя уже открывал поиск корректно.
-    Меняем только то, что нужно для masked link через /go/flight/...
+    ВАЖНО:
+    Используем старый рабочий формат Aviasales /search/,
+    добавляя "1" в конец для one-way
     """
     adults, children, infants = _normalize_passengers(adults, children, infants)
 
@@ -117,8 +117,11 @@ def _build_aviasales_target(
     ddmm_return = iso_to_ddmm(return_date) if return_date else ""
 
     path = f"{origin}{ddmm_depart}{destination}"
+
     if ddmm_return:
         path += ddmm_return
+    else:
+        path += "1"  # ← ЭТО ЕДИНСТВЕННАЯ ПРАВКА
 
     return (
         f"https://www.aviasales.ru/search/{path}"
