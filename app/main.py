@@ -1,6 +1,8 @@
+from urllib.parse import unquote
+
 import requests
 from fastapi import FastAPI, Request, HTTPException, Query
-from fastapi.responses import RedirectResponse, JSONResponse
+from fastapi.responses import Response, JSONResponse
 
 from app.config import BOT_TOKEN, webhook_url, BROADCAST_SECRET
 import app.handlers as handlers
@@ -52,10 +54,13 @@ async def broadcast_run(
 
 def _redirect_to_target(target: str | None, service: str, item_id: str):
     """
-    Универсальный редирект на целевой URL.
-    Пока минимально и безопасно:
-    - если target не передан -> 400
-    - если target передан -> redirect 302
+    Универсальный редирект через собственный домен.
+
+    Важно:
+    - target приходит URL-encoded
+    - декодируем его
+    - отдаём чистый Location header
+    - не трогаем параметры Aviasales / партнёров
     """
     if not target:
         raise HTTPException(
@@ -63,7 +68,21 @@ def _redirect_to_target(target: str | None, service: str, item_id: str):
             detail=f"missing target for service={service}, id={item_id}",
         )
 
-    return RedirectResponse(url=target, status_code=302)
+    decoded_target = unquote(target)
+
+    if not decoded_target.startswith(("http://", "https://")):
+        raise HTTPException(
+            status_code=400,
+            detail="invalid target url",
+        )
+
+    return Response(
+        status_code=302,
+        headers={
+            "Location": decoded_target,
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @app.get("/go/flight/{item_id}")
